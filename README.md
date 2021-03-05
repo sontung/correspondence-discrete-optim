@@ -1,1 +1,1 @@
-# correspondence-discrete-optim
+# Combinatorial algorithms for correspondence problems

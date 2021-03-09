@@ -40,7 +40,7 @@ def read_correspondence(js_dir="data/res-3.json", im_size=3840):
 def read_correspondence_from_dump(txt_dir="data/corr-3.txt"):
     sys.stdin = open(txt_dir, "r")
     lines = sys.stdin.readlines()
-    pairs = [tuple(map(float, line[:-1].split(" ")))[:-1] for line in lines]
+    pairs = [tuple(map(float, line[:-1].split(" "))) for line in lines]
     return pairs
 
 

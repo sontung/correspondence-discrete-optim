@@ -1,7 +1,9 @@
 from math_utils import compute_zncc, compute_epip_line
 from utils import read_correspondence, read_correspondence_from_dump
+from PIL import Image
 import numpy as np
 import cv2
+import flow_vis
 
 
 def compute_deviation(x, y, uv_map):
@@ -57,11 +59,26 @@ def evaluate_corr_pairs(pairs, im1, im2, f_mat):
     return cost/len(pairs), epip_cost/len(pairs), smooth_cost/len(pairs)
 
 
+def visualize_flow(pairs, img1, name="ssd"):
+    flow = np.zeros_like(img1)[:, :, :2]
+    for line in pairs:
+        x, y, x_corr, y_corr = map(int, line)
+        flow[x_corr, y_corr] = [x_corr - x, y_corr - y]
+        flow[x, y] = [x_corr - x, y_corr - y]
+    flow_rgb = flow_vis.flow_to_color(flow, convert_to_bgr=False)
+    Image.fromarray(flow_rgb).save("saved/%s.png" % name)
+
+
 if __name__ == '__main__':
-    PAIRS = read_correspondence_from_dump()
+    PAIRS = read_correspondence_from_dump("data/corr-ssd.txt")
     p1, p2 = read_correspondence()
     F_MAT, _ = cv2.findFundamentalMat(np.int32(p1[:7]), np.int32(p2[:7]), cv2.FM_7POINT)
 
     photo, epip, smooth = evaluate_corr_pairs(PAIRS, cv2.imread("data/im1.png"), cv2.imread("data/im2.png"), F_MAT)
+    visualize_flow(PAIRS, cv2.imread("data/im1.png"), "ssd")
+    print("ssd solution", photo, epip, smooth)
 
-    print(photo, epip)
+    PAIRS = read_correspondence_from_dump("data/corr-dm.txt")
+    photo, epip, smooth = evaluate_corr_pairs(PAIRS, cv2.imread("data/im1.png"), cv2.imread("data/im2.png"), F_MAT)
+    visualize_flow(PAIRS, cv2.imread("data/im1.png"), "dm")
+    print("DM solution", photo, epip, smooth)

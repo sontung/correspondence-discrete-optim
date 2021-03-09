@@ -14,31 +14,30 @@ from pathlib import Path
 from copy import deepcopy
 from multiprocessing import Queue, Process, Value, Lock
 
-MIN_COST = 0.5*100
-
 
 class Graph:
-    def __init__(self, mask1, mask2, im1, im2, epip_matrix):
-        seed_file = Path("saved/seeds.pkl")
-        if seed_file.exists():
-            with open("saved/seeds.pkl", "rb") as seed_f:
-                seeds = pickle.load(seed_f)
-        else:
-            seeds = {i: [] for i in range(len(mask1))}
-            for i in range(len(mask1)):
-                for j in range(len(mask2)):
-                    x, y = mask1[i]
-                    x2, y2 = mask2[j]
-                    a_pair = Pair(im1, im2, x, y, x2, y2, (i, j), epip_matrix, mask2)
-                    if a_pair.return_epip() < 0.5 and a_pair.return_photo() < 0.5:
-                        seeds[i].append(j)
-            for i in seeds:
-                assert len(seeds[i]) > 0
-            with open("saved/seeds.pkl", "wb") as seed_f:
-                pickle.dump(seeds, seed_f)
-        print("seeding done")
+    def __init__(self, mask1, mask2, im1, im2, epip_matrix, seeds=None, min_cost=0.5*100):
+        # seed_file = Path("saved/seeds.pkl")
+        # if seed_file.exists():
+        #     with open("saved/seeds.pkl", "rb") as seed_f:
+        #         seeds = pickle.load(seed_f)
+        # else:
+        #     seeds = {i: [] for i in range(len(mask1))}
+        #     for i in range(len(mask1)):
+        #         for j in range(len(mask2)):
+        #             x, y = mask1[i]
+        #             x2, y2 = mask2[j]
+        #             a_pair = Pair(im1, im2, x, y, x2, y2, (i, j), epip_matrix, mask2)
+        #             if a_pair.return_epip() < 0.5 and a_pair.return_photo() < 0.5:
+        #                 seeds[i].append(j)
+        #     for i in seeds:
+        #         assert len(seeds[i]) > 0
+        #     with open("saved/seeds.pkl", "wb") as seed_f:
+        #         pickle.dump(seeds, seed_f)
+        # print("seeding done")
 
         # explore one branch
+        zncc_dict = {}
         all_paths = []
         path_file = Path("saved/pre-path.pkl")
         if path_file.exists():
@@ -48,28 +47,28 @@ class Graph:
             best_bound = 0
             best_path_index = None
             for j in seeds[0]:
-                a_path = GraphPath(mask1, len(all_paths))
+                a_path = GraphPath()
                 x, y = mask1[0]
                 x2, y2 = mask2[j]
-                a_pair = Pair(im1, im2, x, y, x2, y2, (0, j), epip_matrix, mask2)
+                a_pair = Pair(im1, im2, x, y, x2, y2, (0, j), epip_matrix, mask2, zncc_dict)
                 a_path.add(a_pair)
                 all_paths.append([a_path, a_path.return_bound()])
 
                 if best_path_index is None:
-                    best_path_index = a_path.return_index()
+                    best_path_index = len(all_paths)-1
                     best_bound = a_path.return_bound()
                 elif a_path.return_bound() < best_bound:
-                    best_path_index = a_path.return_index()
+                    best_path_index = len(all_paths)-1
                     best_bound = a_path.return_bound()
 
             best_path, best_bound = all_paths[best_path_index]
             while not best_path.terminate():
                 print("expanding", best_path_index, best_path.return_bound(), len(all_paths),
                       best_path.return_depth(), len(mask1))
-                new_paths = best_path.expand(seeds, im1, im2, mask1, mask2, epip_matrix)
+                new_paths = best_path.expand(seeds, im1, im2, mask1, mask2, epip_matrix, zncc_dict)
                 for path in new_paths:
                     path_bound = path.return_bound()
-                    if path_bound <= MIN_COST:
+                    if path_bound <= min_cost:
                         all_paths.append([path, path_bound])
 
             with open("saved/pre-path.pkl", "wb") as seed_f:
@@ -86,39 +85,39 @@ class Graph:
                 continue
 
             while not current_path.terminate():
-                new_paths = current_path.expand(seeds, im1, im2, mask1, mask2, epip_matrix)
+                new_paths = current_path.expand(seeds, im1, im2, mask1, mask2, epip_matrix, zncc_dict)
                 print("   expanding", current_path.return_bound(), index_,
-                      "depth", current_path.return_depth(), "best cost", best_cost, len(all_paths))
+                      "depth", current_path.return_depth(), "best cost", best_cost, "paths stored", len(all_paths),
+                      "memo zncc size", len(zncc_dict),
+                      "total", len(mask1))
                 for path in new_paths:
                     path_bound = path.return_bound()
-                    if path_bound <= MIN_COST:
+                    if path_bound <= min_cost:
                         all_paths.append([path, path_bound])
                 current_bound = current_path.return_bound()
-                if current_bound > MIN_COST:
+                if current_bound > min_cost:
                     break
             if current_bound < best_cost and current_path.terminate():
                 best_cost = current_bound
                 best_path = current_path
 
-            if current_bound <= MIN_COST and current_path.terminate():
+            if current_bound <= min_cost and current_path.terminate():
                 break
 
             del current_path
-            gc.collect()
 
+        del all_paths, zncc_dict
         print("found", best_path.return_bound(), best_path.return_depth())
         best_path.dump_to_file()
 
 
 class GraphPath:
-    def __init__(self, mask1, index):
-        self.mask_size = len(mask1)
+    def __init__(self):
         self.bound = 0
         self.path = []
         self.uv_map = {}
         self.total_epip = 0
         self.total_photo = 0
-        self.index = index
         self.current_level = 0
         self.fully_expanded = False
 
@@ -128,10 +127,18 @@ class GraphPath:
     def return_depth(self):
         return len(self.path)
 
-    def return_index(self):
-        return self.index
+    def clone(self):
+        new_path = GraphPath()
+        new_path.bound = self.bound
+        new_path.path = self.path[:]
+        new_path.uv_map = self.uv_map.copy()
+        new_path.total_epip = self.total_epip
+        new_path.total_photo = self.total_photo
+        new_path.current_level = self.current_level
+        new_path.fully_expanded = self.fully_expanded
+        return new_path
 
-    def expand(self, seed_maps, im1, im2, mask1, mask2, epip_matrix):
+    def expand(self, seed_maps, im1, im2, mask1, mask2, epip_matrix, zncc_dict):
         i = self.current_level + 1
         new_graphs = []
         if i in seed_maps:
@@ -140,13 +147,13 @@ class GraphPath:
             x2, y2 = mask2[j]
 
             for j in seed_maps[i][1:]:
-                new_graph = deepcopy(self)
+                new_graph = self.clone()
                 x2, y2 = mask2[j]
-                new_pair = Pair(im1, im2, x, y, x2, y2, (i, j), epip_matrix, mask2)
+                new_pair = Pair(im1, im2, x, y, x2, y2, (i, j), epip_matrix, mask2, zncc_dict)
                 new_graph.add(new_pair)
                 new_graphs.append(new_graph)
 
-            new_pair = Pair(im1, im2, x, y, x2, y2, (i, j), epip_matrix, mask2)
+            new_pair = Pair(im1, im2, x, y, x2, y2, (i, j), epip_matrix, mask2, zncc_dict)
             self.add(new_pair)
         else:
             self.fully_expanded = True
@@ -170,7 +177,7 @@ class GraphPath:
         old_bound = self.bound
         self.recompute_bound(smooth)
         assert old_bound < self.bound
-        assert len(self.path) <= 100
+        # assert len(self.path) <= 100
 
     def recompute_bound_full(self):
         smooth = 0
@@ -193,8 +200,12 @@ class GraphPath:
 
 
 class Pair:
-    def __init__(self, im1, im2, x, y, x2, y2, pair_index, epip_matrix, mask2):
-        self.photo = compute_zncc(x, y, x2, y2, im1, im2, 19)[0]
+    def __init__(self, im1, im2, x, y, x2, y2, pair_index, epip_matrix, mask2, zncc_dict):
+        if (x, y, x2, y2) in zncc_dict:
+            self.photo = zncc_dict[(x, y, x2, y2)]
+        else:
+            self.photo = compute_zncc(x, y, x2, y2, im1, im2, 19)[0]
+            zncc_dict[(x, y, x2, y2)] = self.photo
         self.epip = epip_matrix[pair_index[0]*len(mask2)+pair_index[1]]
         self.point1 = (x, y)
         self.point2 = (x2, y2)

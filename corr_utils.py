@@ -28,7 +28,8 @@ def compute_deviation(x, y, uv_map):
         u2, v2 = uv_map[(x, y - 1)]
         uy += abs(u2 - u)
         vy += abs(v2 - v)
-    return ux+uy+vx+vy
+
+    return (ux+uy+vx+vy)/4
 
 
 def evaluate_corr_pairs(pairs, im1, im2, f_mat):

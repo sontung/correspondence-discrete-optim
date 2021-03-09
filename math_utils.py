@@ -132,11 +132,15 @@ def compute_zncc(x, y, x2, y2, f, g, window_size):
         print(s2)
     return s2, f__, g__
 
-def compute_zncc_min_version(x, y, x2, y2, f, g, window_size):
+
+def compute_zncc_min_version(x, y, x2, y2, f, g, window_size, debug=False):
     f = f[x-window_size: x+window_size+1, y-window_size: y+window_size+1]
     g = g[x2-window_size: x2+window_size+1, y2-window_size: y2+window_size+1]
-    f__ = f.copy()
-    g__ = g.copy()
+
+    f__, g__ = None, None
+    if debug:
+        f__ = f.copy()
+        g__ = g.copy()
     f_ = np.mean(f.reshape((-1, 3)), axis=0)
     g_ = np.mean(g.reshape((-1, 3)), axis=0)
     f = f-f_
@@ -146,9 +150,8 @@ def compute_zncc_min_version(x, y, x2, y2, f, g, window_size):
     du2 = np.sum(np.multiply(f, f))
     du3 = np.sum(np.multiply(g, g))
     s2 = du1 / (math.sqrt(du2 * du3) + 0.00001)
-    if s2 > 1 or s2 < -1:
-        print(s2)
     return 1-s2, f__, g__
+
 
 def compute_epip_line(f_mat, yx1):
     f_mat = f_mat[:3, :]

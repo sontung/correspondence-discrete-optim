@@ -44,6 +44,42 @@ def read_correspondence_from_dump(txt_dir="data/corr-3.txt"):
     return pairs
 
 
+def compute_mask(im1, im2, im1_masked, im2_masked):
+    im_mask11 = np.zeros_like(im1)
+    mask1 = []
+    mask1_x = []
+    mask1_y = []
+    for x in range(im1.shape[0]):
+        for y in range(im1.shape[1]):
+            if im1_masked[x, y, 0] > 0:
+                mask1_x.append(x)
+                mask1_y.append(y)
+    center_x = int(np.mean(mask1_x))
+    center_y = int(np.mean(mask1_y))
+    for du1 in range(center_x - 15, center_x + 15):
+        for du2 in range(center_y - 15, center_y + 15):
+            mask1.append((du1, du2))
+            im_mask11[du2, du1] = im1[du2, du1]
+
+    im_mask22 = np.zeros_like(im1)
+    mask2 = []
+    mask2_x = []
+    mask2_y = []
+    for x in range(im2.shape[0]):
+        for y in range(im2.shape[1]):
+            if im2_masked[x, y, 0] > 0:
+                mask2_x.append(x)
+                mask2_y.append(y)
+
+    center_x = int(np.mean(mask2_x))
+    center_y = int(np.mean(mask2_y))
+    for du1 in range(center_x - 70, center_x + 70):
+        for du2 in range(center_y - 70, center_y + 70):
+            mask2.append((du1, du2))
+            im_mask22[du1, du2, :] = im2[du1, du2, :]
+    return mask1, mask2
+
+
 def extract_frame():
     # videos = ["/home/sontung/Desktop/D/asilla/asilla/2018 Nissan Kicks/CEN1807_FPS500_OBA02_SHOULDER.mp4",
     #           "/home/sontung/Desktop/D/asilla/asilla/2018 Nissan Kicks/CEN1807_FPS500_OBA03_DRV.mp4"]

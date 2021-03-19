@@ -4,6 +4,7 @@ import sys
 import pickle
 import gc
 import pybnb
+import heapq
 from math_utils import compute_zncc_min_version as compute_zncc
 # from math_utils import compute_zncc
 
@@ -16,7 +17,7 @@ from multiprocessing import Queue, Process, Value, Lock
 
 
 class Graph:
-    def __init__(self, mask1, mask2, im1, im2, epip_matrix, seeds=None, min_cost=0.5*100):
+    def __init__(self, mask1, mask2, im1, im2, epip_matrix, seeds=None, min_cost=0.5*100, min_cost_per_depth=0.5):
         # seed_file = Path("saved/seeds.pkl")
         # if seed_file.exists():
         #     with open("saved/seeds.pkl", "rb") as seed_f:
@@ -36,6 +37,8 @@ class Graph:
         #         pickle.dump(seeds, seed_f)
         # print("seeding done")
 
+        min_cost_per_depth_to_be_stored = 0.5
+
         # explore one branch
         zncc_dict = {}
         all_paths = []
@@ -52,7 +55,7 @@ class Graph:
                 x2, y2 = mask2[j]
                 a_pair = Pair(im1, im2, x, y, x2, y2, (0, j), epip_matrix, mask2, zncc_dict)
                 a_path.add(a_pair)
-                all_paths.append([a_path, a_path.return_bound()])
+                heapq.heappush(all_paths, [a_path.return_bound_depth(), a_path])
 
                 if best_path_index is None:
                     best_path_index = len(all_paths)-1
@@ -61,47 +64,56 @@ class Graph:
                     best_path_index = len(all_paths)-1
                     best_bound = a_path.return_bound()
 
-            best_path, best_bound = all_paths[best_path_index]
+            best_bound, best_path = all_paths[best_path_index]
             while not best_path.terminate():
                 print("expanding", best_path_index, best_path.return_bound(), len(all_paths),
                       best_path.return_depth(), len(mask1))
                 new_paths = best_path.expand(seeds, im1, im2, mask1, mask2, epip_matrix, zncc_dict)
                 for path in new_paths:
                     path_bound = path.return_bound()
-                    if path_bound <= min_cost:
-                        all_paths.append([path, path_bound])
+                    path_bound_per_depth = path.return_bound_depth()
+                    if path_bound <= min_cost and path_bound_per_depth <= min_cost_per_depth_to_be_stored:
+                        heapq.heappush(all_paths, [path_bound_per_depth, path])
 
             with open("saved/pre-path.pkl", "wb") as seed_f:
                 pickle.dump([all_paths, best_path], seed_f)
 
         best_cost = best_path.return_bound()
         print("start expanding")
+        max_depth = 0
         while len(all_paths) > 0:
-            index_ = min(range(len(all_paths)),
-                         key=lambda du11: all_paths[du11][0].return_bound()/all_paths[du11][0].return_depth())
-            current_path, current_bound = all_paths.pop(index_)
+            _, current_path = heapq.heappop(all_paths)
+            current_bound = current_path.return_bound()
 
             if current_bound > best_cost:
                 continue
 
             while not current_path.terminate():
                 new_paths = current_path.expand(seeds, im1, im2, mask1, mask2, epip_matrix, zncc_dict)
-                print("   expanding", current_path.return_bound(), index_,
-                      "depth", current_path.return_depth(), "best cost", best_cost, "paths stored", len(all_paths),
+                print("   expanding", "%.4f" % current_path.return_bound(),
+                      "depth", current_path.return_depth(), "best cost", "%.4f" % best_cost,
+                      "paths stored", len(all_paths),
                       "memo zncc size", len(zncc_dict),
+                      "max depth", max_depth,
                       "total", len(mask1))
                 for path in new_paths:
                     path_bound = path.return_bound()
-                    if path_bound <= min_cost:
-                        all_paths.append([path, path_bound])
+                    path_bound_per_depth = path.return_bound_depth()
+                    if path_bound <= min_cost and path_bound_per_depth <= min_cost_per_depth_to_be_stored:
+                        heapq.heappush(all_paths, [path_bound_per_depth, path])
                 current_bound = current_path.return_bound()
+                current_bound_per_depth = current_path.return_bound_depth()
                 if current_bound > min_cost:
+                    if current_path.return_depth() > max_depth:
+                        max_depth = current_path.return_depth()
+                    all_paths = self.refine_stored_path(all_paths, current_path)
                     break
             if current_bound < best_cost and current_path.terminate():
                 best_cost = current_bound
                 best_path = current_path
 
             if current_bound <= min_cost and current_path.terminate():
+                best_path = current_path
                 break
 
             del current_path
@@ -109,6 +121,19 @@ class Graph:
         del all_paths, zncc_dict
         print("found", best_path.return_bound(), best_path.return_depth())
         best_path.dump_to_file()
+
+    @staticmethod
+    def refine_stored_path(all_paths, path):
+        new_all_path = []
+        common_list = []
+        for path2 in all_paths:
+            common = len(list(set(path.return_path()).intersection(path2[1].return_path()))) / path2[1].return_depth()
+            if common < 0.8:
+                new_all_path.append(path2)
+                common_list.append(common+0.0001)
+        new_all_path_ind = sorted(range(len(new_all_path)), key=lambda du3: new_all_path[du3][0]/common_list[du3])
+        new_all_path = [new_all_path[ind] for ind in new_all_path_ind]
+        return new_all_path
 
 
 class GraphPath:
@@ -120,6 +145,9 @@ class GraphPath:
         self.total_photo = 0
         self.current_level = 0
         self.fully_expanded = False
+
+    def compare(self, another_path):
+        return len(list(set(self.return_path()).intersection(another_path.return_path()))) / self.return_depth()
 
     def terminate(self):
         return self.fully_expanded
@@ -191,6 +219,12 @@ class GraphPath:
     def return_bound(self):
         return self.bound
 
+    def return_path(self):
+        return self.path
+
+    def return_bound_depth(self):
+        return self.bound/self.return_depth()
+
     def dump_to_file(self, name="data/corr-dm.txt"):
         sys.stdout = open(name, "w")
         for pair in self.path:
@@ -225,6 +259,12 @@ class Pair:
 
     def __str__(self):
         return "%d %d" % (self.pair_index[0], self.pair_index[1])
+
+    def __eq__(self, other):
+        return self.pair_index == other.pair_index
+
+    def __hash__(self):
+        return self.pair_index.__hash__()
 
 
 if __name__ == '__main__':

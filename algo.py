@@ -64,7 +64,7 @@ def ssd_compute_seeding(img1, img2, mask1, mask2, fundamental_mat):
     img1 = np.float32(img1)
     img2 = np.float32(img2)
 
-    ws = 50
+    ws = 19
     mask2_mat = []
     for x2, y2 in mask2:
         mask2_mat.append([y2, x2, 1])
@@ -75,7 +75,7 @@ def ssd_compute_seeding(img1, img2, mask1, mask2, fundamental_mat):
         coeff = np.array([y, x, 1]) @ fundamental_mat
         epip = np.abs(np.sum(coeff*mask2_mat, axis=1))
 
-        upper_limit = (-np.min(epip)+np.max(epip))*0.01 + np.min(epip)
+        upper_limit = (-np.min(epip)+np.max(epip))*0.1 + np.min(epip)
         epip_fitness_test = (epip <= upper_limit).astype(np.int)
         zncc_list = []
         for mask2_idx, data in enumerate(mask2):
@@ -83,8 +83,9 @@ def ssd_compute_seeding(img1, img2, mask1, mask2, fundamental_mat):
             if epip_fitness_test[mask2_idx] == 1:
                 score, f__, g__ = compute_zncc(x, y, x2, y2, img1, img2, ws)
                 zncc_list.append((mask2_idx, score))
-        zncc_list = sorted(zncc_list, key=lambda du: du[-1])
-        seeds[count] = [du[0] for du in zncc_list[-100:]]
+        zncc_list = sorted(zncc_list, key=lambda du: du[-1], reverse=True)
+        print(zncc_list[0])
+        seeds[count] = [du[0] for du in zncc_list[:50]]
 
     return seeds
 
@@ -112,7 +113,7 @@ def dynamic_programming_algo(img1, img2, mask1, mask2, fundamental_mat):
 
     profiler = cProfile.Profile()
     profiler.enable()
-    dm = Graph(mask1, mask2, img1, img2, epip_mat, seeds, 0.5*len(mask1))
+    dm = Graph(mask1, mask2, img1, img2, epip_mat, seeds, 0.5*len(mask1), 1)
     profiler.disable()
     s = io.StringIO()
     sortby = 'time'

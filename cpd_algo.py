@@ -46,6 +46,8 @@ def visualize(iteration, error, X, Y, ax):
 def main():
     X = np.loadtxt('data/target.txt')
     Y = np.loadtxt('data/source.txt')
+    np.random.shuffle(Y)
+    # sys.exit()
 
     fig = plt.figure()
     fig.add_axes([0, 0, 1, 1])

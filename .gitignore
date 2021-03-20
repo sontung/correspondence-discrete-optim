@@ -1,5 +1,6 @@
 data/*.txt
 debugs/
+debug/
 saved/
 .idea/
 

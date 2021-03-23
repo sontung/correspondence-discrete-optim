@@ -19,6 +19,28 @@ def is_positive_semi_definite(R):
     return np.all(np.linalg.eigvals(R) > 0)
 
 
+def color_based_posterior_prob(im, x_mat, ty_mat):
+    ty_mat = ty_mat.astype(int)
+    x_mat = x_mat.astype(int)
+
+    print(x_mat)
+    print(ty_mat)
+
+    prob = np.sum((x_mat[None, :, :] - ty_mat[:, None, :]) ** 2, axis=2)
+    prob = np.zeros((ty_mat.shape[0], x_mat.shape[0]))
+    print(prob.shape)
+    print(im.shape)
+    for i in range(prob.shape[0]):
+        for j in range(prob.shape[1]):
+            x, y = ty_mat[i]
+            x2, y2 = x_mat[j]
+            color_diff = (im[y, x] - im[y2, x2])**2
+            color_diff2 = (im[x, y] - im[x2, y2])**2
+
+            print(np.sum(color_diff), np.sum(color_diff2))
+    sys.exit()
+
+
 class EMRegistration(object):
     """
     Expectation maximization point cloud registration.
@@ -86,7 +108,8 @@ class EMRegistration(object):
 
     """
 
-    def __init__(self, X, Y, X_color, Y_color, P=None, sigma2=None, max_iterations=None, tolerance=None, w=None, *args, **kwargs):
+    def __init__(self, X, Y, X_color, Y_color, X_full, Y_full, image,
+                 zncc=None, sigma2=None, max_iterations=None, tolerance=None, w=None, *args, **kwargs):
         if type(X) is not np.ndarray or X.ndim != 2:
             raise ValueError(
                 "The target point cloud (X) must be at a 2D numpy array.")
@@ -118,11 +141,15 @@ class EMRegistration(object):
             raise ValueError(
                 "Expected a value between 0 (inclusive) and 1 (exclusive) for w instead got: {}".format(w))
 
+        self.image = image
         self.X = X
         self.Y = Y
+        self.X_full = X_full
+        self.Y_full = Y_full
         self.X_color = X_color
         self.Y_color = Y_color
         self.TY = Y
+        self.TY_full = Y_full
         self.sigma2 = initialize_sigma2(X, Y) if sigma2 is None else sigma2
         (self.N, self.D) = self.X.shape
         (self.M, _) = self.Y.shape
@@ -136,18 +163,20 @@ class EMRegistration(object):
         self.Pt1 = np.zeros((self.N, ))
         self.P1 = np.zeros((self.M, ))
         self.Np = 0
+        self.error = 10000
+        self.zncc = zncc
 
     def register(self, callback=lambda **kwargs: None):
         self.transform_point_cloud()
         # while self.iteration < self.max_iterations:
-        while self.iteration < 300:
+        while self.iteration < 100:
             self.iterate()
             if callable(callback):
                 kwargs = {'iteration': self.iteration,
-                          'error': self.q, 'X': self.X, 'Y': self.TY, "X_color": self.X_color, "Y_color": self.Y_color}
+                          'error': self.error, 'X': self.X_full, 'Y': self.TY_full,
+                          "X_color": self.X_color, "Y_color": self.Y_color}
                 callback(**kwargs)
-            if self.q < 0:
-                break
+
         return self.TY, self.get_registration_parameters()
 
     def get_registration_parameters(self):
@@ -187,19 +216,23 @@ class EMRegistration(object):
         self.Np = 0
 
     def expectation(self):
-        P = np.sum((self.X[None, :, :] - self.TY[:, None, :]) ** 2, axis=2)
+        if self.iteration > 0:
+            P = color_based_posterior_prob(self.image, self.X, self.TY)
+            P = np.sum((self.X[None, :, :] - self.TY[:, None, :]) ** 2, axis=2)
+            c = (2 * np.pi * self.sigma2) ** (self.D / 2)
+            c = c * self.w / (1 - self.w)
+            c = c * self.M / self.N
 
-        c = (2 * np.pi * self.sigma2) ** (self.D / 2)
-        c = c * self.w / (1 - self.w)
-        c = c * self.M / self.N
+            P = np.exp(-P / (2 * self.sigma2))
+            den = np.sum(P, axis=0)
+            den = np.tile(den, (self.M, 1))
+            den[den == 0] = np.finfo(float).eps
+            den += c
 
-        P = np.exp(-P / (2 * self.sigma2))
-        den = np.sum(P, axis=0)
-        den = np.tile(den, (self.M, 1))
-        den[den == 0] = np.finfo(float).eps
-        den += c
+            self.P = np.divide(P, den)
+        else:
+            self.P = self.zncc
 
-        self.P = np.divide(P, den)
         self.Pt1 = np.sum(self.P, axis=0)
         self.P1 = np.sum(self.P, axis=1)
         self.Np = np.sum(self.P1)
@@ -247,7 +280,6 @@ class AffineRegistration(EMRegistration):
     def update_transform(self):
         """
         Calculate a new estimate of the rigid transformation.
-
         """
 
         # source and target point cloud means
@@ -267,16 +299,15 @@ class AffineRegistration(EMRegistration):
         # Calculate the new estimate of affine parameters using update rules for (B, t)
         # as defined in Fig. 3 of https://arxiv.org/pdf/0905.2635.pdf.
         self.B = np.linalg.solve(np.transpose(self.YPY), np.transpose(self.A))
-        self.t = np.transpose(
-            muX) - np.dot(np.transpose(self.B), np.transpose(muY))
+        self.t = np.transpose(muX) - np.dot(np.transpose(self.B), np.transpose(muY))
 
     def transform_point_cloud(self, Y=None):
         """
         Update a point cloud using the new estimate of the affine transformation.
-
         """
         if Y is None:
             self.TY = np.dot(self.Y, self.B) + np.tile(self.t, (self.M, 1))
+            self.TY_full = np.dot(self.Y_full, self.B) + np.tile(self.t, (self.Y_full.shape[0], 1))
             return
         else:
             return np.dot(Y, self.B) + np.tile(self.t, (Y.shape[0], 1))
@@ -285,17 +316,17 @@ class AffineRegistration(EMRegistration):
         """
         Update the variance of the mixture model using the new estimate of the affine transformation.
         See the update rule for sigma2 in Fig. 3 of of https://arxiv.org/pdf/0905.2635.pdf.
-
         """
         qprev = self.q
 
         trAB = np.trace(np.dot(self.A, self.B))
-        xPx = np.dot(np.transpose(self.Pt1), np.sum(
-            np.multiply(self.X_hat, self.X_hat), axis=1))
+        xPx = np.dot(np.transpose(self.Pt1), np.sum(np.multiply(self.X_hat, self.X_hat), axis=1))
         trBYPYP = np.trace(np.dot(np.dot(self.B, self.YPY), self.B))
-        self.q = (xPx - 2 * trAB + trBYPYP) / (2 * self.sigma2) + \
-            self.D * self.Np/2 * np.log(self.sigma2)
+        self.q = (xPx - 2 * trAB + trBYPYP) / (2 * self.sigma2) + self.D * self.Np/2 * np.log(self.sigma2)
         self.diff = np.abs(self.q - qprev)
+
+        dist = np.sum((self.X[None, :, :] - self.TY[:, None, :]) ** 2, axis=2)
+        self.error = np.mean(dist[:, np.argmax(self.P, axis=1)])
 
         self.sigma2 = (xPx - trAB) / (self.Np * self.D)
 
@@ -305,6 +336,5 @@ class AffineRegistration(EMRegistration):
     def get_registration_parameters(self):
         """
         Return the current estimate of the affine transformation parameters.
-
         """
         return self.B, self.t

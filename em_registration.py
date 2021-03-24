@@ -1,7 +1,9 @@
 import numpy as np
 import numbers
 import sys
+import cv2
 from warnings import warn
+from PIL import Image
 
 
 def initialize_sigma2(X, Y):
@@ -22,92 +24,14 @@ def is_positive_semi_definite(R):
 def color_based_posterior_prob(im, x_mat, ty_mat):
     ty_mat = ty_mat.astype(int)
     x_mat = x_mat.astype(int)
-
-    print(x_mat)
-    print(ty_mat)
-
-    prob = np.sum((x_mat[None, :, :] - ty_mat[:, None, :]) ** 2, axis=2)
-    prob = np.zeros((ty_mat.shape[0], x_mat.shape[0]))
-    print(prob.shape)
-    print(im.shape)
-    for i in range(prob.shape[0]):
-        for j in range(prob.shape[1]):
-            x, y = ty_mat[i]
-            x2, y2 = x_mat[j]
-            color_diff = (im[y, x] - im[y2, x2])**2
-            color_diff2 = (im[x, y] - im[x2, y2])**2
-
-            print(np.sum(color_diff), np.sum(color_diff2))
-    sys.exit()
+    ind1 = np.repeat(ty_mat, x_mat.shape[0], axis=0)
+    ind2 = np.tile(x_mat, (ty_mat.shape[0], 1))
+    color_diff = np.sum((im[ind1[:, 0], ind1[:, 1]] - im[ind2[:, 0], ind2[:, 1]])**2, axis=1)
+    prob = color_diff.reshape((ty_mat.shape[0], x_mat.shape[0])).astype(np.float32)
+    return prob
 
 
 class EMRegistration(object):
-    """
-    Expectation maximization point cloud registration.
-
-    Attributes
-    ----------
-    X: numpy array
-        NxD array of target points.
-
-    Y: numpy array
-        MxD array of source points.
-
-    Y: numpy array
-        MxD array of transformed source points.
-
-    sigma2: float (positive)
-        Initial variance of the Gaussian mixture model.
-
-    N: int
-        Number of target points.
-
-    M: int
-        Number of source points.
-
-    D: int
-        Dimensionality of source and target points
-
-    iteration: int
-        The current iteration throughout registration.
-
-    max_iterations: int
-        Registration will terminate once the algorithm has taken this
-        many iterations.
-
-    tolerance: float (positive)
-        Registration will terminate once the difference between
-        consecutive objective function values falls within this tolerance.
-
-    w: float (between 0 and 1)
-        Contribution of the uniform distribution to account for outliers.
-        Valid values span 0 (inclusive) and 1 (exclusive).
-
-    q: float
-        The objective function value that represents the misalignment between source
-        and target point clouds.
-
-    diff: float (positive)
-        The absolute difference between the current and previous objective function values.
-
-    P: numpy array
-        MxN array of probabilities.
-        P[m, n] represents the probability that the m-th source point
-        corresponds to the n-th target point.
-
-    Pt1: numpy array
-        Nx1 column array.
-        Multiplication result between the transpose of P and a column vector of all 1s.
-
-    P1: numpy array
-        Mx1 column array.
-        Multiplication result between P and a column vector of all 1s.
-
-    Np: float (positive)
-        The sum of all elements in P.
-
-    """
-
     def __init__(self, X, Y, X_color, Y_color, X_full, Y_full, image,
                  zncc=None, sigma2=None, max_iterations=None, tolerance=None, w=None, *args, **kwargs):
         if type(X) is not np.ndarray or X.ndim != 2:
@@ -169,7 +93,7 @@ class EMRegistration(object):
     def register(self, callback=lambda **kwargs: None):
         self.transform_point_cloud()
         # while self.iteration < self.max_iterations:
-        while self.iteration < 100:
+        while self.iteration < 5:
             self.iterate()
             if callable(callback):
                 kwargs = {'iteration': self.iteration,
@@ -217,7 +141,7 @@ class EMRegistration(object):
 
     def expectation(self):
         if self.iteration > 0:
-            P = color_based_posterior_prob(self.image, self.X, self.TY)
+            # P = color_based_posterior_prob(self.image, self.X, self.TY)
             P = np.sum((self.X[None, :, :] - self.TY[:, None, :]) ** 2, axis=2)
             c = (2 * np.pi * self.sigma2) ** (self.D / 2)
             c = c * self.w / (1 - self.w)
@@ -228,10 +152,14 @@ class EMRegistration(object):
             den = np.tile(den, (self.M, 1))
             den[den == 0] = np.finfo(float).eps
             den += c
-
             self.P = np.divide(P, den)
         else:
             self.P = self.zncc
+
+        # print(self.P[0])
+        # print(np.sum(self.zncc))
+        # print(np.max(self.P[0]))
+        # sys.exit()
 
         self.Pt1 = np.sum(self.P, axis=0)
         self.P1 = np.sum(self.P, axis=1)

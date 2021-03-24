@@ -47,12 +47,11 @@ def ssd_algo_dense_fast(img1, img2, mask1, mask2, fundamental_mat):
         assert best_match is not None
         x_corr, y_corr, f__, g__ = best_match
         Image.fromarray(np.hstack([f__, g__]).astype(np.uint8)).save("debugs/%d.png" % count)
-
-        correspondences.append([x, y, x_corr, y_corr])
+        correspondences.append([x, y, x_corr, y_corr, max_score])
 
     with open("data/corr-ssd.txt", "w") as f:
-        for x, y, x_corr, y_corr in correspondences:
-            print(x, y, x_corr, y_corr, file=f)
+        for x, y, x_corr, y_corr, score in correspondences:
+            print(x, y, x_corr, y_corr, score, file=f)
 
     p, e, s = evaluate_corr_pairs(correspondences, img1, img2, fundamental_mat)
     print("ssd results", p, e, s)

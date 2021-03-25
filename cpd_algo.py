@@ -7,6 +7,9 @@ import sys
 import random
 from pathlib import Path
 from math_utils import compute_zncc_min_version
+sys.path.append("Ambrosio-Tortorelli-Minimizer")
+sys.path.append("fit_ellipse")
+from AmbrosioTortorelliMinimizer import AmbrosioTortorelliMinimizer
 
 
 def write():
@@ -69,8 +72,39 @@ def visualize_transformation(x, y, x_color, y_color, y_transformed):
     plt.show()
 
 
-def read_prior_probab(txt_file="data/corr-ssd.txt", min_score=-1.0, randomize=False):
+def visualize_all_results(results, colors):
+    for count, res in enumerate(results):
+        plt.subplot("%d1%d" % (len(results), count+1))
+        plt.scatter(res[0:-1:1, 0],  res[0:-1:1, 1], color=colors)
+        plt.gca().set_aspect('equal', adjustable='box')
+    plt.show()
+
+
+def read_prior_probab(txt_file="data/corr-ssd.txt",
+                      edge_im=None,
+                      edge_only=False,
+                      min_score=-1.0,
+                      randomize=False):
     sys.stdin = open(txt_file, "r")
+
+    if edge_only:
+        lines = sys.stdin.readlines()
+        a_dict = {}
+        for line in lines:
+            x, y, x2, y2, score = map(float, line[:-1].split(" "))
+            x, y, x2, y2 = map(int, [x, y, x2, y2])
+
+            # for u in range(edge_im.shape[0]):
+            #     for v in range(edge_im.shape[1]):
+            #         if edge_im[u, v] > 0:
+            #             print(u, v)
+            # print(x, y, x2, y2)
+
+            if edge_im[x2, y2] > 0:
+                a_dict[(x, y)] = (x2, y2)
+        assert len(a_dict) > 0
+        return a_dict
+
     if randomize:
         lines = sys.stdin.readlines()
         a_dict = {}
@@ -87,7 +121,7 @@ def read_prior_probab(txt_file="data/corr-ssd.txt", min_score=-1.0, randomize=Fa
             ind3.append(count)
             prob.append(score)
             assert score > 0
-        chosen = random.choices(ind3, weights=prob, k=len(ind3)*80//100)
+        chosen = random.choices(ind3, k=len(ind3)*60//100)
         for ind in chosen:
             a_dict[ind1[ind]] = ind2[ind]
     else:
@@ -100,47 +134,6 @@ def read_prior_probab(txt_file="data/corr-ssd.txt", min_score=-1.0, randomize=Fa
                 a_dict[(x, y)] = (x2, y2)
 
     return a_dict
-
-
-def main():
-
-    prior = read_prior_probab()
-
-    X = []
-    Y = []
-    for (x2, y2) in prior:
-        X.append(prior[(x2, y2)])
-        Y.append((x2, y2))
-    X = np.array(X)
-    Y = np.array(Y)
-
-    zncc_mat = np.zeros((Y.shape[0], X.shape[0]))
-
-    xy2id = {tuple(X[i]): i for i in range(X.shape[0])}
-    x2y22id = {tuple(Y[i]): i for i in range(Y.shape[0])}
-
-    X = []
-    Y = []
-    for (x2, y2) in prior:
-        i = xy2id[prior[(x2, y2)]]
-        j = x2y22id[(x2, y2)]
-        zncc_mat[j, i] = 1
-        X.append(prior[(x2, y2)])
-        Y.append((x2, y2))
-    X = np.array(X)
-    Y = np.array(Y)
-    print(X.shape, Y.shape, zncc_mat.shape)
-
-    reg = AffineRegistration(**{'X': X, 'Y': Y,
-                                'X_color': np.array([(0.5, 0.5, 0) for _ in range(X.shape[0])]),
-                                'Y_color': np.array([(1, 0.5, 1) for _ in range(Y.shape[0])]), "zncc": zncc_mat})
-
-    fig = plt.figure()
-    fig.add_axes([0, 0, 1, 1])
-    callback = partial(visualize, ax=fig.axes[0])
-    reg.register(callback)
-    plt.show()
-    visualize_transformation(reg)
 
 
 def main_full():
@@ -174,14 +167,9 @@ def main_full():
                                 'X_color': X_color,
                                 'Y_color': Y_color, "zncc": zncc_mat})
 
-    fig = plt.figure()
-    fig.add_axes([0, 0, 1, 1])
-    callback = partial(visualize, ax=fig.axes[0])
-    reg.register(callback)
-    plt.show()
-    R, t = reg.get_registration_parameters()
-    print(R, t)
-    visualize_transformation(reg)
+    reg.register()
+    Y_trans = reg.transform_point_cloud(Y)
+    visualize_transformation(X, Y, X_color, Y_color, Y_trans)
 
 
 def solve_partial():
@@ -194,7 +182,10 @@ def solve_partial():
     Y_color = np.load("data/target_colors.npy")/255
 
     prior = read_prior_probab(min_score=0.5)
-    solve_procedure(prior, X, Y, IM2, X_color, Y_color)
+    model = solve_procedure(prior, X, Y, IM2, X_color, Y_color)
+    Y_trans = model.transform_point_cloud(Y)
+    # visualize_transformation(X, Y, X_color, Y_color, Y_trans)
+    return Y_trans
 
 
 def solve_procedure(prior, x_mat, y_mat, im, x_color, y_color):
@@ -228,6 +219,31 @@ def solve_procedure(prior, x_mat, y_mat, im, x_color, y_color):
     return reg
 
 
+def solve_edge_only():
+    IM2 = cv2.imread("data/im2.png")
+    img = cv2.imread("data/im2.png", 1)
+    X = np.loadtxt('data/source.txt')
+    Y = np.loadtxt('data/target.txt')
+    X_color = np.load("data/source_colors.npy")/255
+    Y_color = np.load("data/target_colors.npy")/255
+
+    result, edges = [], []
+    for c in cv2.split(img):
+        solver = AmbrosioTortorelliMinimizer(c, alpha=1000, beta=0.01,
+                                             epsilon=0.01)
+
+        f, v = solver.minimize()
+        result.append(f)
+        edges.append(v)
+
+    edges = np.maximum(*edges)*cv2.imread("data/im2masked.png")[:, :, 0]
+    _, edges = cv2.threshold(edges, 180, 255, cv2.THRESH_BINARY)
+    prior = read_prior_probab(randomize=True, edge_im=edges, edge_only=True)
+    model = solve_procedure(prior, X, Y, IM2, X_color, Y_color)
+    Y_trans = model.transform_point_cloud(Y)
+    return Y_trans
+
+
 def solve_ransac(nb_epc=10):
     IM2 = cv2.imread("data/im2.png")
 
@@ -242,10 +258,14 @@ def solve_ransac(nb_epc=10):
         model = solve_procedure(prior, X, Y, IM2, X_color, Y_color)
         Y_trans += model.transform_point_cloud(Y)
     Y_trans /= nb_epc
-    visualize_transformation(X, Y, X_color, Y_color, Y_trans)
+    # visualize_transformation(X, Y, X_color, Y_color, Y_trans)
+    return Y_trans
 
 
 if __name__ == '__main__':
     write()
-    solve_ransac()
-    solve_partial()
+    y3 = solve_edge_only()
+    y1 = solve_ransac()
+    y2 = solve_partial()
+    print(np.mean(np.abs(y2-y1)))
+    visualize_all_results([y1, y2, y3], np.load("data/target_colors.npy")/255)

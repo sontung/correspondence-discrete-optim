@@ -1,6 +1,7 @@
 from math_utils import compute_zncc, compute_epip_line
 from utils import read_correspondence, read_correspondence_from_dump
 from PIL import Image
+from matplotlib import pyplot as plt
 import numpy as np
 import cv2
 import flow_vis
@@ -40,7 +41,7 @@ def evaluate_corr_pairs(pairs, im1, im2, f_mat):
     point2 = []
     uv_map = {}
     for pair in pairs:
-        x, y, x2, y2 = pair
+        x, y, x2, y2 = pair[:4]
         point1.append([y, x, 1])
         point2.append([y2, x2, 1])
         uv_map[(x, y)] = (x2-x, y2-y)
@@ -49,7 +50,7 @@ def evaluate_corr_pairs(pairs, im1, im2, f_mat):
     epip_fitness = np.abs(np.sum((point1 @ f_mat) * point2, axis=1))
 
     for index, pair in enumerate(pairs):
-        x, y, x2, y2 = pair
+        x, y, x2, y2 = pair[:4]
         x, y, x2, y2 = map(int, (x, y, x2, y2))
 
         zncc_score = compute_zncc(x, y, x2, y2, im1, im2, 19)[0]
@@ -63,23 +64,48 @@ def evaluate_corr_pairs(pairs, im1, im2, f_mat):
 def visualize_flow(pairs, img1, name="ssd"):
     flow = np.zeros_like(img1)[:, :, :2]
     for line in pairs:
-        x, y, x_corr, y_corr = map(int, line)
+        x, y, x_corr, y_corr = map(int, line[:4])
         flow[x_corr, y_corr] = [x_corr - x, y_corr - y]
         flow[x, y] = [x_corr - x, y_corr - y]
     flow_rgb = flow_vis.flow_to_color(flow, convert_to_bgr=False)
     Image.fromarray(flow_rgb).save("saved/%s.png" % name)
+    return flow_rgb
+
+
+def analyze_flow(img):
+    Z = img.reshape((-1, 3))
+    # convert to np.float32
+    Z = np.float32(Z)
+    # define criteria, number of clusters(K) and apply kmeans()
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+    K = 3
+    ret, label, center = cv2.kmeans(Z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    # Now convert back into uint8, and make original image
+
+    center = np.uint8(center)
+    res = center[label.flatten()]
 
 
 if __name__ == '__main__':
-    PAIRS = read_correspondence_from_dump("data/corr-ssd.txt")
+    # PAIRS = read_correspondence_from_dump("data/corr-ssd.txt")
     p1, p2 = read_correspondence()
     F_MAT, _ = cv2.findFundamentalMat(np.int32(p1[:7]), np.int32(p2[:7]), cv2.FM_7POINT)
+    #
+    # photo, epip, smooth = evaluate_corr_pairs(PAIRS, cv2.imread("data/im1.png"), cv2.imread("data/im2.png"), F_MAT)
+    # visualize_flow(PAIRS, cv2.imread("data/im1.png"), "ssd")
+    # print("ssd solution", photo, epip, smooth)
+    #
+    # PAIRS = read_correspondence_from_dump("data/corr-dm.txt")
+    # photo, epip, smooth = evaluate_corr_pairs(PAIRS, cv2.imread("data/im1.png"), cv2.imread("data/im2.png"), F_MAT)
+    # visualize_flow(PAIRS, cv2.imread("data/im1.png"), "dm")
+    # print("DM solution", photo, epip, smooth)
 
+    PAIRS = read_correspondence_from_dump("data/corr-exact.txt")
     photo, epip, smooth = evaluate_corr_pairs(PAIRS, cv2.imread("data/im1.png"), cv2.imread("data/im2.png"), F_MAT)
-    visualize_flow(PAIRS, cv2.imread("data/im1.png"), "ssd")
+    print("exact solution", photo, epip, smooth)
+    rgb = visualize_flow(PAIRS, cv2.imread("data/im1.png"), "exact")
+
+    PAIRS = read_correspondence_from_dump("data/corr-ssd.txt")
+    photo, epip, smooth = evaluate_corr_pairs(PAIRS, cv2.imread("data/im1.png"), cv2.imread("data/im2.png"), F_MAT)
     print("ssd solution", photo, epip, smooth)
-
-    PAIRS = read_correspondence_from_dump("data/corr-dm.txt")
-    photo, epip, smooth = evaluate_corr_pairs(PAIRS, cv2.imread("data/im1.png"), cv2.imread("data/im2.png"), F_MAT)
-    visualize_flow(PAIRS, cv2.imread("data/im1.png"), "dm")
-    print("DM solution", photo, epip, smooth)
+    visualize_flow(PAIRS, cv2.imread("data/im1.png"), "ssd")

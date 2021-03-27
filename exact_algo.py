@@ -6,7 +6,11 @@ import cv2
 import sys
 import random
 from pathlib import Path
+from corr_utils import evaluate_corr_pairs, visualize_flow
+
 from math_utils import compute_zncc_min_version
+from utils import read_correspondence
+
 sys.path.append("Ambrosio-Tortorelli-Minimizer")
 sys.path.append("fit_ellipse")
 from AmbrosioTortorelliMinimizer import AmbrosioTortorelliMinimizer
@@ -157,7 +161,7 @@ def solve_partial():
     x_color = np.load("data/target_colors.npy")/255
     y_color = np.load("data/source_colors.npy")/255
 
-    prior = read_prior_probab(min_score=0.0)
+    prior = read_prior_probab(min_score=0.5)
 
     model = solve_procedure(prior, x_full, y_full, im, x_color, y_color)
     y_trans = model.transform_point_cloud(y_full)
@@ -211,21 +215,95 @@ def solve_edge_only():
     return y_trans
 
 
+def solve_outliers(pairs, img):
+    im = cv2.imread("data/im1.png")
+    x_full = np.loadtxt('data/target.txt')
+    y_full = np.loadtxt('data/source.txt')
+    x_color = np.load("data/target_colors.npy")/255
+    y_color = np.load("data/source_colors.npy")/255
+
+    rgb = visualize_flow(pairs, img)
+    rgb2 = rgb.reshape((-1, 3))
+    rgb2 = np.float32(rgb2)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+    ret, label, center = cv2.kmeans(rgb2, 3, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+
+    center = np.uint8(center)
+    res = center[label.flatten()]
+    res = res.reshape(img.shape)
+
+    dict1 = {}
+    dict2 = {}
+    for du1 in range(res.shape[0]):
+        for du2 in range(res.shape[1]):
+            if not (res[du1, du2] == np.array([255, 255, 255])).all():
+                k = tuple(res[du1, du2])
+                if k not in dict1:
+                    dict1[k] = 0
+                    dict2[k] = [(du1, du2)]
+                else:
+                    dict1[k] += 1
+                    dict2[k].append((du1, du2))
+    inliers = dict2[max(list(dict1.keys()), key=lambda du: dict1[du])]
+    prior = {}
+    for x, y, x_corr, y_corr in pairs:
+        if (x, y) in inliers:
+            prior[(x, y)] = (x_corr, y_corr)
+    model = solve_procedure(prior, x_full, y_full, im, x_color, y_color)
+    y_trans = model.transform_point_cloud(y_full)
+    return y_trans
+
+
+def output_correspondence(y_ori, y_trans, target):
+    img1 = cv2.imread("data/im1.png")
+    img2 = cv2.imread("data/im2.png")
+    p1, p2 = read_correspondence()
+    fundamental_mat, _ = cv2.findFundamentalMat(np.int32(p1[:7]), np.int32(p2[:7]), cv2.FM_7POINT)
+
+    def helper(y_trans):
+        ind1 = np.repeat(y_trans, target.shape[0], axis=0)
+        ind2 = np.tile(target, (y_trans.shape[0], 1))
+        diff = (ind1-ind2)**2
+        diff = np.sum(diff, axis=1)
+        diff = np.sqrt(diff).reshape((y_trans.shape[0], target.shape[0]))
+        diff = np.argmin(diff, axis=1)
+        corr = []
+        for i in range(y_trans.shape[0]):
+            x, y = y_ori[i]
+            x2, y2 = target[diff[i]]
+            corr.append([x, y, x2, y2])
+
+        with open("data/corr-exact.txt", "w") as f:
+            for x, y, x_corr, y_corr in corr:
+                print(x, y, x_corr, y_corr, file=f)
+
+        p, e, s = evaluate_corr_pairs(corr, img1, img2, fundamental_mat)
+        print("ssd results", p, e, s)
+        return corr
+
+    corr = helper(y_trans)
+    y_trans = solve_outliers(corr, img1)
+    corr = helper(y_trans)
+
+
+
 if __name__ == '__main__':
-    y0 = np.loadtxt('data/source.txt')
-    y2 = solve_ransac()
-    y1 = solve_partial()
-    y3 = solve_edge_only()
-    visualize_all_results([np.loadtxt('data/target.txt'), y0, y1, y2, y3],
-                          [np.load("data/target_colors.npy")/255,
-                           np.load("data/source_colors.npy")/255,
-                           np.load("data/source_colors.npy")/255,
-                           np.load("data/source_colors.npy")/255,
-                           np.load("data/source_colors.npy")/255]
-                          )
-    y_true = np.loadtxt('data/target.txt')
-    print(
-        np.mean(np.abs(y1 - y_true)),
-        np.mean(np.abs(y2 - y_true)),
-        np.mean(np.abs(y3 - y_true)),
-    )
+    # y0 = np.loadtxt('data/source.txt')
+    # y2 = solve_ransac()
+    # y1 = solve_partial()
+    # y3 = solve_edge_only()
+    # visualize_all_results([np.loadtxt('data/target.txt'), y0, y1, y2, y3],
+    #                       [np.load("data/target_colors.npy")/255,
+    #                        np.load("data/source_colors.npy")/255,
+    #                        np.load("data/source_colors.npy")/255,
+    #                        np.load("data/source_colors.npy")/255,
+    #                        np.load("data/source_colors.npy")/255]
+    #                       )
+    # y_true = np.loadtxt('data/target.txt')
+    # print(
+    #     np.mean(np.abs(y1 - y_true)),
+    #     np.mean(np.abs(y2 - y_true)),
+    #     np.mean(np.abs(y3 - y_true)),
+    # )
+
+    output_correspondence(np.loadtxt('data/source.txt'), solve_edge_only(), np.loadtxt('data/target.txt'))

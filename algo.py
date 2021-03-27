@@ -71,7 +71,7 @@ def ssd_compute_seeding(img1, img2, mask1, mask2, fundamental_mat):
         mask2_mat.append([y2, x2, 1])
     mask2_mat = np.array(mask2_mat)
     seeds = {}
-    for count in range(0, len(mask1)):
+    for count in tqdm.tqdm(range(0, len(mask1))):
         x, y = mask1[count]
         coeff = np.array([y, x, 1]) @ fundamental_mat
         epip = np.abs(np.sum(coeff*mask2_mat, axis=1))
@@ -85,7 +85,6 @@ def ssd_compute_seeding(img1, img2, mask1, mask2, fundamental_mat):
                 score, f__, g__ = compute_zncc(x, y, x2, y2, img1, img2, ws)
                 zncc_list.append((mask2_idx, score))
         zncc_list = sorted(zncc_list, key=lambda du: du[-1], reverse=True)
-        print(zncc_list[0])
         seeds[count] = [du[0] for du in zncc_list[:50]]
 
     return seeds

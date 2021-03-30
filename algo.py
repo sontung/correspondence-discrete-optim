@@ -14,13 +14,13 @@ from pathlib import Path
 from dynamic_programming import Graph, GraphPath, Pair
 
 
-def ssd_algo_dense_fast(img1, img2, mask1, mask2, fundamental_mat):
+def ssd_algo_dense_fast(img1, img2, mask1, mask2, fundamental_mat, edge_only=False):
     if fundamental_mat.shape[0] > 3:
         fundamental_mat = fundamental_mat[:3, :]
     img1 = np.float32(img1)
     img2 = np.float32(img2)
 
-    ws = 50
+    ws = 19
     mask2_mat = []
     for x2, y2 in mask2:
         mask2_mat.append([y2, x2, 1])
@@ -35,7 +35,10 @@ def ssd_algo_dense_fast(img1, img2, mask1, mask2, fundamental_mat):
         max_score = None
         best_match = None
 
-        upper_limit = (-np.min(epip)+np.max(epip))*0.005 + np.min(epip)
+        if edge_only:
+            upper_limit = 0.001
+        else:
+            upper_limit = (-np.min(epip)+np.max(epip))*0.005 + np.min(epip)
         epip_fitness_test = (epip <= upper_limit).astype(np.int)
         for mask2_idx, data in enumerate(mask2):
             x2, y2 = data
@@ -44,11 +47,10 @@ def ssd_algo_dense_fast(img1, img2, mask1, mask2, fundamental_mat):
                 if best_match is None or score > max_score:
                     max_score = score
                     best_match = (x2, y2, f__, g__)
-        assert best_match is not None
-        x_corr, y_corr, f__, g__ = best_match
-        Image.fromarray(np.hstack([f__, g__]).astype(np.uint8)).save("debugs/%d.png" % count)
-        correspondences.append([x, y, x_corr, y_corr, max_score])
-
+        if best_match is not None:
+            x_corr, y_corr, f__, g__ = best_match
+            correspondences.append([x, y, x_corr, y_corr, max_score])
+    print("Found %d pairs" % len(correspondences))
     with open("data/corr-ssd.txt", "w") as f:
         for x, y, x_corr, y_corr, score in correspondences:
             print(x, y, x_corr, y_corr, score, file=f)
@@ -122,11 +124,15 @@ def dynamic_programming_algo(img1, img2, mask1, mask2, fundamental_mat):
     print(s.getvalue())
 
 
-def run_ssd():
+def run_ssd(edge_only=True):
     IM1 = cv2.imread("data/im1.png")
     IM2 = cv2.imread("data/im2.png")
-    IM1_masked = cv2.imread("data/im1masked.png")
-    IM2_masked = cv2.imread("data/im2masked.png")
+    if edge_only:
+        IM1_masked = cv2.imread("data/im1edges.png")
+        IM2_masked = cv2.imread("data/im2edges.png")
+    else:
+        IM1_masked = cv2.imread("data/im1masked.png")
+        IM2_masked = cv2.imread("data/im2masked.png")
 
     MASK1 = []
     for x in range(IM1.shape[0]):
@@ -142,7 +148,7 @@ def run_ssd():
 
     p1, p2 = read_correspondence()
     F_MAT, _ = cv2.findFundamentalMat(np.int32(p1[:7]), np.int32(p2[:7]), cv2.FM_7POINT)
-    ssd_algo_dense_fast(IM1, IM2, MASK1, MASK2, F_MAT)
+    ssd_algo_dense_fast(IM1, IM2, MASK1, MASK2, F_MAT, edge_only)
 
 
 def run_dm():

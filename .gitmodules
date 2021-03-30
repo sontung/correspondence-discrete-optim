@@ -1,0 +1,3 @@
+[submodule "Ambrosio-Tortorelli-Minimizer"]
+	path = Ambrosio-Tortorelli-Minimizer
+	url = https://github.com/jacobgil/Ambrosio-Tortorelli-Minimizer.git

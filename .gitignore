@@ -3,6 +3,7 @@ debugs/
 debug/
 saved/
 .idea/
+*.pickle
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

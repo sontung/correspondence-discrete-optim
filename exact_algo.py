@@ -4,6 +4,7 @@ from em_registration import AffineRegistration
 import numpy as np
 import cv2
 import sys
+import pickle
 import random
 from pathlib import Path
 from corr_utils import evaluate_corr_pairs, visualize_flow
@@ -125,6 +126,7 @@ def solve_procedure(prior, x_full, y_full, im, x_color, y_color):
                                 'X_color': x_color,
                                 'Y_color': y_color,
                                 "zncc": zncc_mat})
+    print("registering")
     reg.register()
     return reg
 
@@ -244,10 +246,15 @@ def solve_outliers(pairs, img):
                 else:
                     dict1[k] += 1
                     dict2[k].append((du1, du2))
+    with open('post_analysis.pickle', 'wb') as handle:
+        pickle.dump([dict1, dict2], handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     inliers = dict2[max(list(dict1.keys()), key=lambda du: dict1[du])]
+    outliers = dict2[min(list(dict1.keys()), key=lambda du: dict1[du])]
+    print("outliers", len(outliers), "inliers", len(inliers))
     prior = {}
     for x, y, x_corr, y_corr in pairs:
-        if (x, y) in inliers:
+        if (x, y) in outliers:
             prior[(x, y)] = (x_corr, y_corr)
     model = solve_procedure(prior, x_full, y_full, im, x_color, y_color)
     y_trans = model.transform_point_cloud(y_full)
@@ -255,6 +262,15 @@ def solve_outliers(pairs, img):
 
 
 def output_correspondence(y_ori, y_trans, target):
+    # from corr_utils import post_analysis
+    # post_analysis(y_trans, y_ori)
+    # post_analysis(np.round(y_trans), y_ori)
+    # y_trans2 = []
+    # for i in range(y_trans.shape[0]):
+    #     x2, y2 = map(int, y_trans[i])
+    #     y_trans2.append([x2, y2])
+    # post_analysis(y_trans2, y_ori)
+
     img1 = cv2.imread("data/im1.png")
     img2 = cv2.imread("data/im2.png")
     p1, p2 = read_correspondence()
@@ -281,10 +297,25 @@ def output_correspondence(y_ori, y_trans, target):
         print("ssd results", p, e, s)
         return corr
 
-    corr = helper(y_trans)
-    y_trans = solve_outliers(corr, img1)
+    # def helper2(y_trans):
+    #     corr = []
+    #     for i in range(y_trans.shape[0]):
+    #         x, y = y_ori[i]
+    #         x2, y2 = map(float, y_trans[i])
+    #         corr.append([x, y, x2, y2])
+    #     with open("data/corr-exact.txt", "w") as f:
+    #         for x, y, x_corr, y_corr in corr:
+    #             print(x, y, x_corr, y_corr, file=f)
+    #
+    #     p, e, s = evaluate_corr_pairs(corr, img1, img2, fundamental_mat)
+    #     print("ssd results", p, e, s)
+    #
+    #     return corr
+
     corr = helper(y_trans)
 
+    # y_trans = solve_outliers(corr, img1)
+    # corr = helper2(y_trans)
 
 
 if __name__ == '__main__':
@@ -306,4 +337,4 @@ if __name__ == '__main__':
     #     np.mean(np.abs(y3 - y_true)),
     # )
 
-    output_correspondence(np.loadtxt('data/source.txt'), solve_edge_only(), np.loadtxt('data/target.txt'))
+    output_correspondence(np.loadtxt('data/source.txt'), solve_partial(), np.loadtxt('data/target.txt'))

@@ -70,8 +70,8 @@ class EMRegistration(object):
         self.Y = Y
         self.X_full = X_full
         self.Y_full = Y_full
-        self.X_color = X_color
-        self.Y_color = Y_color
+        # self.X_color = X_color
+        # self.Y_color = Y_color
         self.TY = Y
         self.TY_full = Y_full
         self.sigma2 = initialize_sigma2(X, Y) if sigma2 is None else sigma2

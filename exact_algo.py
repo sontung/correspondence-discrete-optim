@@ -12,9 +12,6 @@ from corr_utils import evaluate_corr_pairs, visualize_flow
 from math_utils import compute_zncc_min_version
 from utils import read_correspondence
 
-sys.path.append("Ambrosio-Tortorelli-Minimizer")
-sys.path.append("fit_ellipse")
-from AmbrosioTortorelliMinimizer import AmbrosioTortorelliMinimizer
 
 
 def write():
@@ -170,6 +167,17 @@ def solve_partial():
     return y_trans
 
 
+def solve_simple(corr, x_full, y_full, min_score=0.5):
+    a_dict = {}
+    for x, y, x2, y2, score in corr:
+        x, y, x2, y2 = map(int, [x, y, x2, y2])
+        if score >= min_score:
+            a_dict[(x, y)] = (x2, y2)
+    model = solve_procedure(a_dict, x_full, y_full, None, None, None)
+    y_trans = model.transform_point_cloud(y_full)
+    return y_trans
+
+
 def solve_ransac(nb_epc=10):
     im = cv2.imread("data/im2.png")
     x_full = np.loadtxt('data/target.txt')
@@ -316,6 +324,25 @@ def output_correspondence(y_ori, y_trans, target):
 
     # y_trans = solve_outliers(corr, img1)
     # corr = helper2(y_trans)
+
+
+def final_process(y_ori, y_trans, target, img1, img2, fundamental_mat):
+
+    ind1 = np.repeat(y_trans, target.shape[0], axis=0)
+    ind2 = np.tile(target, (y_trans.shape[0], 1))
+    diff = (ind1-ind2)**2
+    diff = np.sum(diff, axis=1)
+    diff = np.sqrt(diff).reshape((y_trans.shape[0], target.shape[0]))
+    diff = np.argmin(diff, axis=1)
+    corr = []
+    for i in range(y_trans.shape[0]):
+        x, y = y_ori[i]
+        x2, y2 = target[diff[i]]
+        corr.append([x, y, x2, y2])
+
+    p, e, s = evaluate_corr_pairs(corr, img1, img2, fundamental_mat)
+    print("ssd results", p, e, s)
+    return corr
 
 
 if __name__ == '__main__':

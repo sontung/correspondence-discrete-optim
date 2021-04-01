@@ -70,8 +70,11 @@ def dense_correspondence(img_left=None, img_right=None):
         for j in range(mask2.shape[1]):
             if mask2[i, j, 0] > 0:
                 y_full.append([i, j])
+    x_full = np.array(x_full)
+    y_full = np.array(y_full)
 
     y_trans = solve_simple(sparse_corr, x_full, y_full)
+    print("solving correspondences for %d pairs" % x_full.shape[0])
     final_process(y_full, y_trans, x_full, img_left, img_right, f_mat)
 
 

@@ -97,8 +97,7 @@ class EMRegistration(object):
             self.iterate()
             if callable(callback):
                 kwargs = {'iteration': self.iteration,
-                          'error': self.error, 'X': self.X_full, 'Y': self.TY_full,
-                          "X_color": self.X_color, "Y_color": self.Y_color}
+                          'error': self.error, 'X': self.X_full, 'Y': self.TY_full}
                 callback(**kwargs)
 
         return self.TY, self.get_registration_parameters()

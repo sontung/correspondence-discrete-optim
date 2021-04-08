@@ -1,5 +1,7 @@
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
+
 from skimage.io import imread
 from skimage.color import rgb2gray
 from skimage.feature import match_descriptors, ORB, plot_matches
@@ -12,8 +14,8 @@ from PIL import Image
 
 def sparse_correspondence(img_left=None, img_right=None):
     if img_left is None:
-        img_left = imread("../data_light/images/opencv_frame_0.png")*imread("../data_light/images_mask/opencv_frame_0_bin.png")
-        img_right = imread("../data_light/images/opencv_frame_1.png")*imread("../data_light/images_mask/opencv_frame_1_bin.png")
+        img_left = imread("../data_light/images/opencv_frame_0.png")*cv2.cvtColor(imread("../data_light/images_mask/opencv_frame_0.png"), cv2.COLOR_GRAY2BGR)
+        img_right = imread("../data_light/images/opencv_frame_1.png")*cv2.cvtColor(imread("../data_light/images_mask/opencv_frame_1.png"), cv2.COLOR_GRAY2BGR)
     img_left_gray, img_right_gray = map(rgb2gray, (img_left, img_right))
 
     descriptor_extractor = ORB()
@@ -53,8 +55,11 @@ def sparse_correspondence(img_left=None, img_right=None):
 def dense_correspondence(img_left=None, img_right=None):
     f_mat, sparse_corr = sparse_correspondence()
 
-    mask1 = imread("../data_light/images_mask/opencv_frame_0_bin.png")
-    mask2 = imread("../data_light/images_mask/opencv_frame_1_bin.png")
+    mask1 = imread("../data_light/images_mask/opencv_frame_0.png")
+    mask2 = imread("../data_light/images_mask/opencv_frame_1.png")
+
+    mask1 = cv2.cvtColor(mask1, cv2.COLOR_GRAY2BGR)
+    mask2 = cv2.cvtColor(mask2, cv2.COLOR_GRAY2BGR)
 
     img_left = imread("../data_light/images/opencv_frame_0.png") * mask1
     img_right = imread("../data_light/images/opencv_frame_1.png") * mask2
@@ -72,10 +77,38 @@ def dense_correspondence(img_left=None, img_right=None):
                 y_full.append([i, j])
     x_full = np.array(x_full)
     y_full = np.array(y_full)
+    x_full, y_full = y_full, x_full
 
     y_trans = solve_simple(sparse_corr, x_full, y_full)
     print("solving correspondences for %d pairs" % x_full.shape[0])
-    final_process(y_full, y_trans, x_full, img_left, img_right, f_mat)
+    corr = final_process(y_full, y_trans, x_full, img_left, img_right)
+    inlier_keypoints_left = []
+    inlier_keypoints_right = []
+    with open("../data_heavy/corr-exact.txt", "w") as f:
+        for x, y, x_corr, y_corr in corr:
+            print(x, y, x_corr, y_corr, file=f)
+            inlier_keypoints_left.append([x, y])
+            inlier_keypoints_right.append([x_corr, y_corr])
+
+    f_mat, _ = cv2.findFundamentalMat(np.int32(inlier_keypoints_left), np.int32(inlier_keypoints_right), cv2.FM_LMEDS)
+    np.save('../data_light/f_mat.npy', f_mat)
+
+    # kp1 = []
+    # kp2 = []
+    # matches = []
+    # for d, (x, y, x2, y2) in enumerate(corr):
+    #     kp1.append([x, y])
+    #     kp2.append([x2, y2])
+    #     matches.append([d, d])
+    #
+    # fig, ax = plt.subplots(nrows=1, ncols=1)
+    #
+    # plt.gray()
+    #
+    # plot_matches(ax, img_left, img_right, np.array(kp1)[0:-1:200], np.array(kp2)[0:-1:200],
+    #              np.array(matches)[0:-1:200], only_matches=True)
+    # plt.show()
+    return corr
 
 
 if __name__ == '__main__':

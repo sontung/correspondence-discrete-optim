@@ -56,8 +56,7 @@ def evaluate_corr_pairs(pairs, im1, im2, f_mat):
     for index, pair in enumerate(pairs):
         x, y, x2, y2 = pair[:4]
         x, y, x2, y2 = map(int, (x, y, x2, y2))
-
-        zncc_score = compute_zncc(x, y, x2, y2, im1, im2, 19)[0]
+        zncc_score = compute_zncc(x, y, x2, y2, im1, im2, 0)[0]
         epip_cost += epip_fitness[index]
         cost += zncc_score
         smooth_cost += compute_deviation(x, y, uv_map)
@@ -71,9 +70,11 @@ def visualize_flow(pairs, img1, img2, name="ssd"):
 
     for line in pairs:
         x, y, x_corr, y_corr = map(int, line[:4])
-
-        flow2[x_corr, y_corr] = [x_corr - x, y_corr - y]
-        flow1[x, y] = [x_corr - x, y_corr - y]
+        try:
+            flow2[x_corr, y_corr] = [x_corr - x, y_corr - y]
+            flow1[x, y] = [x_corr - x, y_corr - y]
+        except IndexError:
+            continue
 
     flow_rgb1 = flow_vis.flow_to_color(flow1, convert_to_bgr=False)
     flow_rgb2 = flow_vis.flow_to_color(flow2, convert_to_bgr=False)

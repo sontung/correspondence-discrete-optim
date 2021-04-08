@@ -326,22 +326,28 @@ def output_correspondence(y_ori, y_trans, target):
     # corr = helper2(y_trans)
 
 
-def final_process(y_ori, y_trans, target, img1, img2, fundamental_mat):
+def final_process(y_ori, y_trans, target, img1, img2):
+    try:
+        ind1 = np.repeat(y_trans, target.shape[0], axis=0)
+        ind2 = np.tile(target, (y_trans.shape[0], 1))
+        diff = (ind1 - ind2) ** 2
+        diff = np.sum(diff, axis=1)
+        diff = np.sqrt(diff).reshape((y_trans.shape[0], target.shape[0]))
+        diff = np.argmin(diff, axis=1)
+        corr = []
+        for i in range(y_trans.shape[0]):
+            x, y = y_ori[i]
+            x2, y2 = target[diff[i]]
+            corr.append([x, y, x2, y2])
+    except MemoryError:
+        corr = []
+        for i in range(y_trans.shape[0]):
+            x, y = y_ori[i]
+            dist_2 = np.sum((target - y_trans[i]) ** 2, axis=1)
+            x2, y2 = target[np.argmin(dist_2)]
+            corr.append([x, y, x2, y2])
 
-    ind1 = np.repeat(y_trans, target.shape[0], axis=0)
-    ind2 = np.tile(target, (y_trans.shape[0], 1))
-    diff = (ind1-ind2)**2
-    diff = np.sum(diff, axis=1)
-    diff = np.sqrt(diff).reshape((y_trans.shape[0], target.shape[0]))
-    diff = np.argmin(diff, axis=1)
-    corr = []
-    for i in range(y_trans.shape[0]):
-        x, y = y_ori[i]
-        x2, y2 = target[diff[i]]
-        corr.append([x, y, x2, y2])
-
-    p, e, s = evaluate_corr_pairs(corr, img1, img2, fundamental_mat)
-    print("ssd results", p, e, s)
+    visualize_flow(corr, img1, img2, "exact")
     return corr
 
 

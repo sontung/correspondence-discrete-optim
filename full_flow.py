@@ -111,5 +111,9 @@ def dense_correspondence(img_left=None, img_right=None):
     return corr
 
 
+def into_tracks_manager_osfm():
+    return
+
+
 if __name__ == '__main__':
     dense_correspondence()

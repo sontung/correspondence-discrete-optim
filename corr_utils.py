@@ -7,8 +7,6 @@ import cv2
 import sys
 import pickle
 import flow_vis
-sys.path.append("Ambrosio-Tortorelli-Minimizer")
-from AmbrosioTortorelliMinimizer import AmbrosioTortorelliMinimizer
 
 
 def compute_deviation(x, y, uv_map):
